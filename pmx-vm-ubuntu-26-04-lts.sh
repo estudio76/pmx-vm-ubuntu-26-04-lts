@@ -3,20 +3,25 @@
 # Copyright (c) 2021-2026 Estudio76co
 # Author: Estudio76co (happyCo) | Adaptado para Ubuntu 26.04 LTS de tteck (tteckster)
 # License: MIT
-# https://github.com/community-scripts/ProxmoxVE/raw/main/LICENSE
+# https://github.com/estudio76/pmx-vm-ubuntu-26-04-lts/blob/main/LICENSE
 
-source /dev/stdin <<<$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/api.func)
+# ─────────────────────────────────────────────────────────────────────────────
+# SEGURIDAD: Este script NO depende de repositorios externos en tiempo de
+# ejecución y NO envía telemetría a ningún tercero.
+# Todas las funciones están definidas localmente.
+# ─────────────────────────────────────────────────────────────────────────────
 
 function header_info {
   clear
   cat <<"EOF"
    __  ____                __           ___  __   ____  __ __     _    ____  ___
-  / / / / /_  __  ______  / /___  __   |__ \/ /_ / __ \/ // /    | |  / /  |/  /
+  / / / / /_  __  ______  / /___  __   |__ \/ /_ / __ \/ // /    | |  / /  |/  |
  / / / / __ \/ / / / __ \/ __/ / / /   __/ / _ \/ / / / // /_    | | / / /|_/ /
 / /_/ / /_/ / /_/ / / / / /_/ /_/ /   / __/  __/ /_/ /__  __/    | |/ / /  / /
 \____/_.___/\__,_/_/ /_/\__/\__,_/   /____/\___/\____/  /_/       |___/_/  /_/
 
               Ubuntu 26.04 LTS - Resolute Raccoon - VM Creator
+              github.com/estudio76/pmx-vm-ubuntu-26-04-lts
 EOF
 }
 header_info
@@ -63,15 +68,21 @@ THIN="discard=on,ssd=1,"
 set -e
 trap 'error_handler $LINENO "$BASH_COMMAND"' ERR
 trap cleanup EXIT
-trap 'post_update_to_api "failed" "130"' SIGINT
-trap 'post_update_to_api "failed" "143"' SIGTERM
-trap 'post_update_to_api "failed" "129"; exit 129' SIGHUP
+# ── ELIMINADO: traps que llamaban a post_update_to_api (telemetría externa) ───
+# ANTES:
+#   trap 'post_update_to_api "failed" "130"' SIGINT
+#   trap 'post_update_to_api "failed" "143"' SIGTERM
+#   trap 'post_update_to_api "failed" "129"; exit 129' SIGHUP
+trap 'echo -e "\n${CROSS}${RD}Interrumpido por el usuario${CL}\n"; exit 130' SIGINT
+trap 'echo -e "\n${CROSS}${RD}Script terminado (SIGTERM)${CL}\n"; exit 143' SIGTERM
+trap 'echo -e "\n${CROSS}${RD}Sesión cerrada (SIGHUP)${CL}\n"; exit 129' SIGHUP
 
 function error_handler() {
   local exit_code="$?"
   local line_number="$1"
   local command="$2"
-  post_update_to_api "failed" "$exit_code"
+  # ── ELIMINADO: post_update_to_api "failed" "$exit_code" ──────────────────
+  # Esa llamada enviaba datos del error al API de community-scripts
   local error_message="${RD}[ERROR]${CL} en línea ${RD}$line_number${CL}: código ${RD}$exit_code${CL}: comando ${YW}$command${CL}"
   echo -e "\n$error_message\n"
   cleanup_vmid
@@ -85,7 +96,7 @@ function get_valid_nextid() {
       try_id=$((try_id + 1))
       continue
     fi
-    if lvs --noheadings -o lv_name | grep -qE "(^|[-_])${try_id}($|[-_])"; then
+    if lvs --noheadings -o lv_name 2>/dev/null | grep -qE "(^|[-_])${try_id}($|[-_])"; then
       try_id=$((try_id + 1))
       continue
     fi
@@ -95,29 +106,22 @@ function get_valid_nextid() {
 }
 
 function cleanup_vmid() {
-  if qm status $VMID &>/dev/null; then
-    qm stop $VMID &>/dev/null
-    qm destroy $VMID &>/dev/null
+  if [ -n "${VMID:-}" ] && qm status "$VMID" &>/dev/null; then
+    qm stop "$VMID" &>/dev/null
+    qm destroy "$VMID" &>/dev/null
   fi
 }
 
 function cleanup() {
   local exit_code=$?
-  popd >/dev/null
-  if [[ "${POST_TO_API_DONE:-}" == "true" && "${POST_UPDATE_DONE:-}" != "true" ]]; then
-    if [[ $exit_code -eq 0 ]]; then
-      post_update_to_api "done" "none"
-    else
-      post_update_to_api "failed" "$exit_code"
-    fi
-  fi
-  rm -rf $TEMP_DIR
+  popd >/dev/null 2>&1 || true
+  rm -rf "${TEMP_DIR:-}"
 }
 
 TEMP_DIR=$(mktemp -d)
-pushd $TEMP_DIR >/dev/null
+pushd "$TEMP_DIR" >/dev/null
 
-if whiptail --backtitle "Proxmox VE Helper Scripts" --title "Ubuntu 26.04 LTS VM" \
+if whiptail --backtitle "Estudio76co - Proxmox Scripts" --title "Ubuntu 26.04 LTS VM" \
   --yesno "Esto creará una nueva VM con Ubuntu 26.04 LTS (Resolute Raccoon). ¿Continuar?" 10 62; then
   :
 else
@@ -163,7 +167,7 @@ function arch_check() {
 function ssh_check() {
   if command -v pveversion >/dev/null 2>&1; then
     if [ -n "${SSH_CLIENT:+x}" ]; then
-      if whiptail --backtitle "Proxmox VE Helper Scripts" --defaultno --title "SSH DETECTADO" \
+      if whiptail --backtitle "Estudio76co - Proxmox Scripts" --defaultno --title "SSH DETECTADO" \
         --yesno "Se recomienda usar la shell de Proxmox en vez de SSH. ¿Continuar con SSH?" 10 62; then
         echo "advertencia aceptada"
       else
@@ -183,13 +187,13 @@ function default_settings() {
   VMID=$(get_valid_nextid)
   FORMAT=",efitype=4m"
   MACHINE=""
-  DISK_SIZE="20G"        # Tamaño de disco por defecto
+  DISK_SIZE="20G"
   DISK_CACHE=""
-  HN="ubuntu-2604"       # Hostname por defecto
-  CPU_TYPE=""            # KVM64 por defecto (compatible con cualquier host)
-  CORE_COUNT="2"         # 2 cores por defecto
-  RAM_SIZE="2048"        # 2GB RAM por defecto
-  BRG="vmbr0"            # Bridge por defecto (el estándar de Proxmox)
+  HN="ubuntu-2604"
+  CPU_TYPE=""
+  CORE_COUNT="2"
+  RAM_SIZE="2048"
+  BRG="vmbr0"
   MAC="$GEN_MAC"
   VLAN=""
   MTU=""
@@ -218,7 +222,7 @@ function advanced_settings() {
 
   # VM ID
   while true; do
-    if VMID=$(whiptail --backtitle "Proxmox VE Helper Scripts" --inputbox "ID de la Máquina Virtual" \
+    if VMID=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --inputbox "ID de la Máquina Virtual" \
       8 58 $VMID --title "VM ID" --cancel-button Exit-Script 3>&1 1>&2 2>&3); then
       [ -z "$VMID" ] && VMID=$(get_valid_nextid)
       if pct status "$VMID" &>/dev/null || qm status "$VMID" &>/dev/null; then
@@ -229,7 +233,7 @@ function advanced_settings() {
   done
 
   # Machine Type
-  if MACH=$(whiptail --backtitle "Proxmox VE Helper Scripts" --title "MACHINE TYPE" --radiolist \
+  if MACH=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --title "MACHINE TYPE" --radiolist \
     "Elige el tipo de máquina" 10 58 2 \
     "q35"    "Machine q35 (recomendado)" ON \
     "i440fx" "Machine i440fx"            OFF \
@@ -243,7 +247,7 @@ function advanced_settings() {
   else exit-script; fi
 
   # Disk Size
-  if DISK_SIZE=$(whiptail --backtitle "Proxmox VE Helper Scripts" --inputbox \
+  if DISK_SIZE=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --inputbox \
     "Tamaño del disco en GiB (ej: 100)" 8 58 "100" --title "DISK SIZE" \
     --cancel-button Exit-Script 3>&1 1>&2 2>&3); then
     DISK_SIZE=$(echo "$DISK_SIZE" | tr -d ' ')
@@ -252,7 +256,7 @@ function advanced_settings() {
   else exit-script; fi
 
   # Disk Cache
-  if DISK_CACHE=$(whiptail --backtitle "Proxmox VE Helper Scripts" --title "DISK CACHE" \
+  if DISK_CACHE=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --title "DISK CACHE" \
     --radiolist "Elige el caché del disco" 10 58 2 \
     "0" "None (Default)" ON \
     "1" "Write Through"  OFF \
@@ -267,7 +271,7 @@ function advanced_settings() {
   else exit-script; fi
 
   # Hostname
-  if VM_NAME=$(whiptail --backtitle "Proxmox VE Helper Scripts" --inputbox "Hostname de la VM" \
+  if VM_NAME=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --inputbox "Hostname de la VM" \
     8 58 "ubuntu-2604" --title "HOSTNAME" --cancel-button Exit-Script 3>&1 1>&2 2>&3); then
     HN=$(echo "${VM_NAME,,}" | tr -cs 'a-z0-9-' '-' | sed 's/^-//;s/-$//')
     [ -z "$HN" ] && HN="ubuntu-2604"
@@ -275,7 +279,7 @@ function advanced_settings() {
   else exit-script; fi
 
   # CPU Model
-  if CPU_TYPE1=$(whiptail --backtitle "Proxmox VE Helper Scripts" --title "CPU MODEL" \
+  if CPU_TYPE1=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --title "CPU MODEL" \
     --radiolist "Elige el modelo de CPU" 10 58 2 \
     "1" "Host (mejor rendimiento)"  ON \
     "0" "KVM64 (más compatible)"    OFF \
@@ -291,7 +295,7 @@ function advanced_settings() {
 
   # CPU Cores
   while true; do
-    if CORE_COUNT=$(whiptail --backtitle "Proxmox VE Helper Scripts" --inputbox \
+    if CORE_COUNT=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --inputbox \
       "Número de cores CPU" 8 58 "2" --title "CPU CORES" \
       --cancel-button Exit-Script 3>&1 1>&2 2>&3); then
       [ -z "$CORE_COUNT" ] && CORE_COUNT="2"
@@ -301,7 +305,7 @@ function advanced_settings() {
 
   # RAM
   while true; do
-    if RAM_SIZE=$(whiptail --backtitle "Proxmox VE Helper Scripts" --inputbox \
+    if RAM_SIZE=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --inputbox \
       "RAM en MiB (ej: 4096)" 8 58 "4096" --title "RAM" \
       --cancel-button Exit-Script 3>&1 1>&2 2>&3); then
       [ -z "$RAM_SIZE" ] && RAM_SIZE="4096"
@@ -310,7 +314,7 @@ function advanced_settings() {
   done
 
   # Bridge
-  if BRG=$(whiptail --backtitle "Proxmox VE Helper Scripts" --inputbox \
+  if BRG=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --inputbox \
     "Bridge de red" 8 58 "vmbr1" --title "BRIDGE" \
     --cancel-button Exit-Script 3>&1 1>&2 2>&3); then
     [ -z "$BRG" ] && BRG="vmbr1"
@@ -319,7 +323,7 @@ function advanced_settings() {
 
   # MAC Address
   while true; do
-    if MAC1=$(whiptail --backtitle "Proxmox VE Helper Scripts" --inputbox \
+    if MAC1=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --inputbox \
       "MAC Address" 8 58 $GEN_MAC --title "MAC ADDRESS" \
       --cancel-button Exit-Script 3>&1 1>&2 2>&3); then
       if [ -z "$MAC1" ]; then MAC="$GEN_MAC"
@@ -331,7 +335,7 @@ function advanced_settings() {
 
   # VLAN
   while true; do
-    if VLAN1=$(whiptail --backtitle "Proxmox VE Helper Scripts" --inputbox \
+    if VLAN1=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --inputbox \
       "VLAN (deja en blanco para default)" 8 58 "" --title "VLAN" \
       --cancel-button Exit-Script 3>&1 1>&2 2>&3); then
       if [ -z "$VLAN1" ]; then VLAN=""; VLAN1="Default"
@@ -344,7 +348,7 @@ function advanced_settings() {
 
   # MTU
   while true; do
-    if MTU1=$(whiptail --backtitle "Proxmox VE Helper Scripts" --inputbox \
+    if MTU1=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --inputbox \
       "MTU Size (deja en blanco para default)" 8 58 "" --title "MTU SIZE" \
       --cancel-button Exit-Script 3>&1 1>&2 2>&3); then
       if [ -z "$MTU1" ]; then MTU=""; MTU1="Default"
@@ -356,7 +360,7 @@ function advanced_settings() {
   done
 
   # Start VM
-  if whiptail --backtitle "Proxmox VE Helper Scripts" --title "INICIAR VM" \
+  if whiptail --backtitle "Estudio76co - Proxmox Scripts" --title "INICIAR VM" \
     --yesno "¿Iniciar la VM al terminar?" 10 58; then
     START_VM="yes"
     echo -e "${GATEWAY}${BOLD}${DGN}Iniciar al terminar: ${BGN}yes${CL}"
@@ -365,7 +369,7 @@ function advanced_settings() {
     echo -e "${GATEWAY}${BOLD}${DGN}Iniciar al terminar: ${BGN}no${CL}"
   fi
 
-  if whiptail --backtitle "Proxmox VE Helper Scripts" --title "LISTO" \
+  if whiptail --backtitle "Estudio76co - Proxmox Scripts" --title "LISTO" \
     --yesno "¿Crear la VM Ubuntu 26.04 con esta configuración?" --no-button Do-Over 10 58; then
     echo -e "${CREATING}${BOLD}${DGN}Creando Ubuntu 26.04 VM...${CL}"
   else
@@ -376,7 +380,7 @@ function advanced_settings() {
 }
 
 function start_script() {
-  if whiptail --backtitle "Proxmox VE Helper Scripts" --title "CONFIGURACIÓN" \
+  if whiptail --backtitle "Estudio76co - Proxmox Scripts" --title "CONFIGURACIÓN" \
     --yesno "¿Usar configuración por defecto?" --no-button Advanced 10 58; then
     header_info
     echo -e "${DEFAULT}${BOLD}${BL}Usando configuración por defecto${CL}"
@@ -393,7 +397,6 @@ arch_check
 pve_check
 ssh_check
 start_script
-post_to_api_vm
 
 # ─── STORAGE ─────────────────────────────────────────────────
 msg_info "Validando Storage"
@@ -417,7 +420,7 @@ elif [ $((${#STORAGE_MENU[@]} / 3)) -eq 1 ]; then
   STORAGE=${STORAGE_MENU[0]}
 else
   while [ -z "${STORAGE:+x}" ]; do
-    STORAGE=$(whiptail --backtitle "Proxmox VE Helper Scripts" --title "Storage Pools" --radiolist \
+    STORAGE=$(whiptail --backtitle "Estudio76co - Proxmox Scripts" --title "Storage Pools" --radiolist \
       "¿Qué storage usar para ${HN}?\n" \
       16 $(($MSG_MAX_LENGTH + 23)) 6 \
       "${STORAGE_MENU[@]}" 3>&1 1>&2 2>&3)
@@ -427,14 +430,31 @@ msg_ok "Storage: ${CL}${BL}$STORAGE${CL}"
 msg_ok "VM ID: ${CL}${BL}$VMID${CL}"
 
 # ─── DESCARGAR CLOUD IMAGE DE UBUNTU 26.04 ───────────────────
+# URL oficial de Ubuntu — única conexión externa del script
+IMAGE_BASE_URL="https://cloud-images.ubuntu.com/releases/26.04/release"
+IMAGE_FILE="ubuntu-26.04-server-cloudimg-amd64.img"
+URL="${IMAGE_BASE_URL}/${IMAGE_FILE}"
+CHECKSUM_URL="${IMAGE_BASE_URL}/SHA256SUMS"
+
 msg_info "Descargando Ubuntu 26.04 LTS Cloud Image"
-URL=https://cloud-images.ubuntu.com/releases/26.04/release/ubuntu-26.04-server-cloudimg-amd64.img
 sleep 2
 msg_ok "${CL}${BL}${URL}${CL}"
-curl -f#SL -o "$(basename "$URL")" "$URL"
+curl -f#SL -o "${IMAGE_FILE}" "$URL"
 echo -en "\e[1A\e[0K"
-FILE=$(basename $URL)
-msg_ok "Descargado: ${CL}${BL}${FILE}${CL}"
+msg_ok "Descargado: ${CL}${BL}${IMAGE_FILE}${CL}"
+
+# ─── VERIFICAR INTEGRIDAD (SHA256) ───────────────────────────
+# NUEVO: verifica que la imagen no esté corrompida ni manipulada
+msg_info "Verificando integridad SHA256 de la imagen"
+curl -fsSL "$CHECKSUM_URL" -o SHA256SUMS
+if grep -q "${IMAGE_FILE}" SHA256SUMS; then
+  grep "${IMAGE_FILE}" SHA256SUMS | sha256sum --check --status
+  msg_ok "Integridad verificada correctamente"
+else
+  msg_error "No se encontró el checksum para ${IMAGE_FILE}. El archivo puede ser incorrecto."
+  exit 1
+fi
+FILE="$IMAGE_FILE"
 
 # ─── TIPO DE STORAGE ─────────────────────────────────────────
 STORAGE_TYPE=$(pvesm status -storage $STORAGE | awk 'NR>1 {print $2}')
@@ -463,7 +483,7 @@ qm create $VMID \
   -cores $CORE_COUNT \
   -memory $RAM_SIZE \
   -name $HN \
-  -tags community-script \
+  -tags estudio76co \
   -net0 virtio,bridge=$BRG,macaddr=$MAC$VLAN$MTU \
   -onboot 1 \
   -ostype l26 \
@@ -482,8 +502,8 @@ qm set $VMID \
 DESCRIPTION=$(cat <<EOF
 <div align='center'>
   <h2>Ubuntu 26.04 LTS - Resolute Raccoon</h2>
-  <p>VM creada por Estudio76co con helper script adaptado de community-scripts</p>
-  <p><a href='https://github.com/estudio76/pmx-vm-ubuntu-26-04-lts'>GitHub</a></p>
+  <p>VM creada por Estudio76co</p>
+  <p><a href='https://github.com/estudio76/pmx-vm-ubuntu-26-04-lts'>github.com/estudio76/pmx-vm-ubuntu-26-04-lts</a></p>
 </div>
 EOF
 )
@@ -502,7 +522,6 @@ if [ "$START_VM" == "yes" ]; then
   msg_ok "VM iniciada"
 fi
 
-post_update_to_api "done" "none"
 msg_ok "¡Completado exitosamente!\n"
 echo -e "${YW}⚠️  Configura Cloud-Init antes de usar la VM${CL}"
-
+echo -e "${INFO}${BL}https://github.com/estudio76/pmx-vm-ubuntu-26-04-lts${CL}\n"
