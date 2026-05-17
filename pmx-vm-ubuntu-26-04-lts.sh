@@ -496,7 +496,8 @@ qm set $VMID \
   -scsi0 ${DISK1_REF},${DISK_CACHE}${THIN}size=${DISK_SIZE} \
   -ide2 ${STORAGE}:cloudinit \
   -boot order=scsi0 \
-  -serial0 socket >/dev/null
+  -serial0 socket \
+  -vga serial0 >/dev/null
 
 # ─── DESCRIPCIÓN ─────────────────────────────────────────────
 DESCRIPTION=$(cat <<EOF
